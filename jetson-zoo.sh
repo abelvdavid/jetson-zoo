@@ -30,6 +30,8 @@ LOG_FILE=./jetson-zoo.log
 
 #
 # check if a particular deb package is installed with dpkg-query
+# arg $1 -> package name
+# arg $2 -> variable name to output status to (e.g. HAS_PACKAGE=1)
 #
 function check_deb_package()
 {
@@ -37,44 +39,43 @@ function check_deb_package()
 	local HAS_PKG=`dpkg-query -W --showformat='${Status}\n' $PKG_NAME|grep "install ok installed"`
 
 	if [ "$HAS_PKG" == "" ]; then
-		echo "$LOG_ZOO Checking for '$PKG_NAME' package...not installed"
-		return 0
+		echo "$LOG_ZOO Checking for '$PKG_NAME' deb package...not installed"
 	else
-		echo "$LOG_ZOO Checking for '$PKG_NAME' package...installed"
-		return 1
+		echo "$LOG_ZOO Checking for '$PKG_NAME' deb package...installed"
+		eval "$2=INSTALLED"
 	fi
 }
 
 
 #
 # install a debian package if it isn't already installed
+# arg $1 -> package name
+# arg $2 -> variable name to output status to (e.g. FOUND_PACKAGE=INSTALLED)
 #
 function install_deb_package()
 {
 	local PKG_NAME=$1
 	
 	# check to see if the package is already installed
-	check_deb_package $PKG_NAME
-	local HAS_PKG=$?
+	check_deb_package $PKG_NAME $2
 
 	# if not, install the package
-	if [ $HAS_PKG == 0 ]; then
-		echo "$LOG_ZOO Missing '$PKG_NAME' package...installing '$PKG_NAME' package."
+	if [ -z $2 ]; then
+		echo "$LOG_ZOO Missing '$PKG_NAME' deb package...installing '$PKG_NAME' package."
 		sudo apt-get --force-yes --yes install $PKG_NAME
 	else
-		return 1
+		return 0
 	fi
 	
 	# verify that the package was installed
-	check_deb_package $PKG_NAME
-	local HAS_PKG=$?
+	check_deb_package $PKG_NAME $2
 	
-	if [ $HAS_PKG == 0 ]; then
-		echo "$LOG_ZOO Failed to install '$PKG_NAME' package."
-		return 0
-	else
-		echo "$LOG_ZOO Successfully installed '$PKG_NAME' package."
+	if [ -z $2 ]; then
+		echo "$LOG_ZOO Failed to install '$PKG_NAME' deb package."
 		return 1
+	else
+		echo "$LOG_ZOO Successfully installed '$PKG_NAME' deb package."
+		return 0
 	fi
 }
 
@@ -98,8 +99,71 @@ function install_jetson_inference()
 }			
 		
 
+#
+# package installation menu
+#
+function install_packages()
+{
+	pkg_selected=$(dialog --backtitle "$APP_TITLE" \
+						  --title "Packages to Install" \
+						  --checklist "Keys:\n  ↑↓  Navigate Menu\n  Space to Select Packages \n  Enter to Continue" 20 80 7 \
+						  --output-fd 1 \
+						  1 "Hello AI World (jetson-inference)" off \
+						  2 "TensorFlow 1.13" off \
+						  3 "PyTorch 1.0 (Python 2.7)" off \
+						  4 "PyTorch 1.0 (Python 3.6)" off \
+						  5 "MXNet" off \
+						  6 "AWS Greengrass" off \
+						  7 "ROS Melodic" off)
+
+	pkg_selection_status=$?
+	clear
+
+	{
+
+	echo "$LOG_ZOO Packages selection status:  $pkg_selection_status"
+
+	if [ $pkg_selection_status = 0 ]; then
+		if [ -z $pkg_selected ]; then
+			echo "$LOG_ZOO No packages were selected for installation."
+		else
+		    echo "$LOG_ZOO Packages selected for installation:  $pkg_selected"
+		
+			for pkg in $pkg_selected
+			do
+				if [ $pkg = 1 ]; then
+					echo "$LOG_ZOO Installing Hello AI World (jetson-inference)..."
+					install_jetson_inference
+				elif [ $pkg = 2 ]; then
+					echo "$LOG_ZOO Installing TensorFlow 1.13 (Python 3.6)..."
+				elif [ $pkg = 3 ]; then
+					echo "$LOG_ZOO Installing PyTorch 1.0 (Python 2.7)..."
+				elif [ $pkg = 4 ]; then
+					echo "$LOG_ZOO Installing PyTorch 1.0 (Python 3.6)..."
+				elif [ $pkg = 5 ]; then
+					echo "$LOG_ZOO Installing MXNet..."
+				elif [ $pkg = 6 ]; then
+					echo "$LOG_ZOO Installing AWS Greengrass..."
+				elif [ $pkg = 7 ]; then
+					echo "$LOG_ZOO Installing ROS Melodic..."
+				fi
+			done
+		fi
+	else
+	    echo "$LOG_ZOO Package selection cancelled."
+	fi
+
+	echo "$LOG_ZOO Press Enter key to quit."
+
+	} > >(tee -a -i $LOG_FILE) 2>&1
+
+}
+
+
+# 
 # retrieve jetson board info
-function jetson_info() 
+#
+function read_jetson_info() 
 {
 	# verify architecture 
 	JETSON_ARCH=$(uname -i)
@@ -157,17 +221,17 @@ function jetson_info()
 	echo "$LOG_ZOO Jetson Memory Free:   $JETSON_MEMORY_FREE MB"
 	
 	# Disk storage
-	JETSON_STORAGE=$(($(stat -f --format="%b*%S" .)))
-	JETSON_STORAGE_FREE=$(($(stat -f --format="%f*%S" .)))
-	JETSON_STORAGE_USED=$(expr $JETSON_STORAGE - $JETSON_STORAGE_FREE)
+	JETSON_DISK=$(($(stat -f --format="%b*%S" .)))
+	JETSON_DISK_FREE=$(($(stat -f --format="%f*%S" .)))
+	JETSON_DISK_USED=$(expr $JETSON_DISK - $JETSON_DISK_FREE)
 
-	JETSON_STORAGE=$(expr $JETSON_STORAGE / 1048576)	# convert bytes to MB
-	JETSON_STORAGE_FREE=$(expr $JETSON_STORAGE_FREE / 1048576)
-	JETSON_STORAGE_USED=$(expr $JETSON_STORAGE_USED / 1048576)
+	JETSON_DISK=$(expr $JETSON_DISK / 1048576)	# convert bytes to MB
+	JETSON_DISK_FREE=$(expr $JETSON_DISK_FREE / 1048576)
+	JETSON_DISK_USED=$(expr $JETSON_DISK_USED / 1048576)
 
-	echo "$LOG_ZOO Jetson Storage Total:  $JETSON_STORAGE MB"
-	echo "$LOG_ZOO Jetson Storage Used:   $JETSON_STORAGE_USED MB"
-	echo "$LOG_ZOO Jetson Storage Free:   $JETSON_STORAGE_FREE MB"
+	echo "$LOG_ZOO Jetson Disk Total:  $JETSON_DISK MB"
+	echo "$LOG_ZOO Jetson Disk Used:   $JETSON_DISK_USED MB"
+	echo "$LOG_ZOO Jetson Disk Free:   $JETSON_DISK_FREE MB"
 
 	# Kernel version
 	JETSON_KERNEL=$(uname -r)
@@ -218,101 +282,129 @@ function jetson_info()
 	return 0
 }
 
+
+# display jetson board info
+function jetson_info()
+{
+	echo "$LOG_ZOO Jetson Board Information"
+
+	local mem_total_str=$(printf "│  Total:  %4d MB  │" ${JETSON_MEMORY})
+	local mem_used_str=$(printf "│  Used:   %4d MB  │" ${JETSON_MEMORY_USED})
+	local mem_free_str=$(printf "│  Free:   %4d MB  │" ${JETSON_MEMORY_FREE})
+
+	local disk_total_str=$(printf "│  Total:  %5d MB  │" ${JETSON_DISK})
+	local disk_used_str=$(printf "│  Used:   %5d MB  │" ${JETSON_DISK_USED})
+	local disk_free_str=$(printf "│  Free:   %5d MB  │" ${JETSON_DISK_FREE})
+
+	local sw_kernel_str=$(printf  "│  Linux Kernel:     %-23s│" "$JETSON_KERNEL ($JETSON_ARCH)")
+	local sw_l4t_str=$(printf     "│  L4T Version:      %-23s│" "$JETSON_L4T")
+	local sw_jetpack_str=$(printf "│  JetPack Version:  %-23s│" "$JETSON_JETPACK")
+	local sw_cuda_str=$(printf    "│  CUDA Version:     %-23s│" "$JETSON_CUDA")
+
+	local info_str="Part Name:  $JETSON_MODEL\n
+Chip Arch:  $JETSON_CHIP ($JETSON_CHIP_ID)\n
+Serial No:  $JETSON_SERIAL\n
+Power Mode: $JETSON_POWER_MODE\n\n
+┌─\ZbSoftware Configuration\ZB────────────────────┐\n
+${sw_kernel_str}\n
+${sw_l4t_str}\n
+${sw_jetpack_str}\n
+${sw_cuda_str}\n
+└───────────────────────────────────────────┘\n\n
+┌─\ZbMemory\ZB────────────┐  ┌─\ZbDisk Storage\ZB───────┐\n
+${mem_total_str}  ${disk_total_str}\n
+${mem_used_str}  ${disk_used_str}\n
+${mem_free_str}  ${disk_free_str}\n
+└───────────────────┘  └────────────────────┘\n"  
+
+	dialog --backtitle "$APP_TITLE" \
+		  --title "Jetson Board Information" \
+		  --colors \
+		  --msgbox "$info_str" 20 85 
+}
+
+
 		
-#
-# setup logging
-#
-{	# run sections in a subshell that we want logged
+# initial config
+{	
+	#
+	# run sections that we want logged in a subshell 
+	#
+	echo "$LOG_ZOO `date`"
+	echo "$LOG_ZOO Logging to: $LOG_FILE"
 
-echo "$LOG_ZOO `date`"
-echo "$LOG_ZOO Logging to: $LOG_FILE"
+
+	# 
+	# retrieve jetson info and verify architecture
+	#
+	read_jetson_info
+
+	if [ $? != 0 ]; then
+		exit $?
+	fi
 
 
-# retrieve jetson info and verify architecture
-jetson_info
-
-if [ $? != 0 ]; then
-	exit $?
-fi
-
-#
-# check for dialog package
-#
-install_deb_package "dialog"
-HAS_DIALOG=$?
-echo "$LOG_ZOO HAS_DIALOG=$HAS_DIALOG"
-
-#install_deb_package "dialog"
-
-#DIALOG_PKG_OK=$(dpkg-query -W --showformat='${Status}\n' dialog|grep "install ok installed")
-
-#echo "$LOG_ZOO Checking for 'dialog' package: $DIALOG_PKG_OK"
-
-#if [ "" == "$DIALOG_PKG_OK" ]; then
-#	echo "$LOG_ZOO 'dialog' package not installed. Setting up 'dialog' package."
-#	sudo apt-get --force-yes --yes install dialog
-#fi
+	#
+	# check for dialog package
+	#
+	install_deb_package "dialog" FOUND_DIALOG
+	echo "$LOG_ZOO FOUND_DIALOG=$FOUND_DIALOG"
 
 } > >(tee -i $LOG_FILE) 2>&1		# clear the log on first subshell (tee without -a)
+
 
 # use customized RC config
 export DIALOGRC=./jetson-zoo.rc
 
 
 #
-# package select dialog
+# main menu
 #
-selected_packages=$(dialog --backtitle "$APP_TITLE" \
-	   --title "Packages to Install" \
-	   --checklist "Keys:\n  ↑↓ Navigate menu\n  Space to select items\n  Enter to continue" 20 80 7 \
-	   --output-fd 1 \
-        1 "Hello AI World (jetson-inference)" off \
-        2 "TensorFlow 1.13" off \
-        3 "PyTorch 1.0 (Python 2.7)" off \
-		4 "PyTorch 1.0 (Python 3.6)" off \
-		5 "MXNet" off \
-		6 "AWS Greengrass" off \
-		7 "ROS Melodic" off)
+while true; do
+	menu_selected=$(dialog --backtitle "$APP_TITLE" \
+					   --title "Main Menu" \
+					   --cancel-label "Quit" \
+					   --menu "Keys:\n  ↑↓  Navigate Menu\n  Enter to Continue" 20 80 7 \
+					   --output-fd 1 \
+						1 "Board Information" \
+						2 "View Installed Add-Ons" \
+						3 "Install Add-On Packages" \
+						4 "Uninstall Add-On Packages")
 
-pkg_selection_status=$?
-clear
-#dialog --clear
+	menu_status=$?
+	clear
 
-{
+	{
+		echo "$LOG_ZOO Menu status:   $menu_status"
 
-echo "$LOG_ZOO Packages selection exit status:  $pkg_selection_status"
+		# non-zero exit code means the user quit
+		if [ $menu_status != 0 ]; then
+			echo "$LOG_ZOO Press Enter key to exit"
+			exit 0
+		fi
 
-if [ $pkg_selection_status = 0 ]; then
-	if [ -z $selected_packages ]; then
-		echo "$LOG_ZOO No packages were selected for installation."
-	else
-	    echo "$LOG_ZOO Packages selected for installation:  $selected_packages"
-	
-		for pkg in $selected_packages
-		do
-			if [ $pkg = 1 ]; then
-				echo "$LOG_ZOO Installing Hello AI World (jetson-inference)..."
-				install_jetson_inference
-			elif [ $pkg = 2 ]; then
-				echo "$LOG_ZOO Installing TensorFlow 1.13 (Python 3.6)..."
-			elif [ $pkg = 3 ]; then
-				echo "$LOG_ZOO Installing PyTorch 1.0 (Python 2.7)..."
-			elif [ $pkg = 4 ]; then
-				echo "$LOG_ZOO Installing PyTorch 1.0 (Python 3.6)..."
-			elif [ $pkg = 5 ]; then
-				echo "$LOG_ZOO Installing MXNet..."
-			elif [ $pkg = 6 ]; then
-				echo "$LOG_ZOO Installing AWS Greengrass..."
-			elif [ $pkg = 7 ]; then
-				echo "$LOG_ZOO Installing ROS Melodic..."
-			fi
-		done
-	fi
-else
-    echo "$LOG_ZOO Package selection cancelled."
-fi
+		echo "$LOG_ZOO Menu selected: $menu_selected"
 
-echo "$LOG_ZOO Press Enter key to quit."
+	} > >(tee -a -i $LOG_FILE) 2>&1		# 'tee -a' (append to log on further subshells)
 
-} > >(tee -a -i $LOG_FILE) 2>&1		# 'tee -a' (append to log on further subshells)
+
+	# execute the selected menu option
+	case $menu_selected in
+		1)
+			echo "$LOG_ZOO Board Information" 
+			jetson_info ;;
+		2)
+			echo "$LOG_ZOO View Installed Add-Ons" ;;
+		3)
+			echo "$LOG_ZOO Install Add-On Packages" 
+			install_packages ;;
+		4)
+			echo "$LOG_ZOO Uninstall Add-On Packages" ;;
+		5)
+			echo "$LOG_ZOO Press Enter key to quit"
+			exit 0 ;;
+		*)
+			echo "$LOG_ZOO Unknown Menu Option" ;;
+	esac
+done
 

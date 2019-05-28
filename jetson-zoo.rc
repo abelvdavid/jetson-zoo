@@ -30,7 +30,7 @@ use_shadow = OFF
 use_colors = ON
 
 # Screen color
-screen_color = (BLACK,GREEN,ON)
+screen_color = (WHITE,GREEN,ON)
 #screen_color = (CYAN,BLUE,ON)
 
 # Shadow color
