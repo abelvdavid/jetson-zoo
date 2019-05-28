@@ -27,13 +27,57 @@ APP_TITLE="NVIDIA Jetson Add-On Installer"
 LOG_ZOO="[jetson-zoo] "
 LOG_FILE=./jetson-zoo.log
 
+UPDATES_URL="https://raw.githubusercontent.com/dusty-nv/jetson-zoo/master/jetson-zoo.sh"
+
+#
+# check for updates to this script
+#
+function check_updates()
+{
+	CHECKSUM=sha256sum
+$
+	NEW_PATH="jetson-zoo.new"
+	OLD_PATH="jetson-zoo.old"
+	CUR_PATH=$0
+
+	echo "$LOG_ZOO checking for updates..."
+	echo "$LOG_ZOO current path: $CUR_PATH  old path: $OLD_PATH  new path: $NEW_PATH"
+
+	# make a backup of the current script
+	echo "$LOG_ZOO backing up $CUR_PATH to $OLD_PATH"
+	cp $CUR_PATH $OLD_PATH
+
+	# download the latest
+	echo "$LOG_ZOO downloading latest script to $NEW_PATH"
+	wget --no-check-certificate "$UPDATES_URL" -O $NEW_PATH
+
+	# get checksums
+	CHECKSUM_OLD=$(sha256sum $CUR_PATH | awk '{print $1}')
+	CHECKSUM_NEW=$(sha256sum $NEW_PATH | awk '{print $1}')
+
+	echo "$LOG_ZOO old checksum: $CHECKSUM_OLD"
+	echo "$LOG_ZOO new checksum: $CHECKSUM_NEW"
+
+	# compare checksums
+	if [ $CHECKSUM_OLD != $CHECKSUM_NEW ]; then
+		echo "$LOG_ZOO updated version found"
+		# TODO ask user if they want to update
+		#cp $NEW_PATH $CUR_PATH
+		#$CUR_PATH $@
+		return 1
+	fi
+
+	echo "$LOG_ZOO already using the latest version"
+	return 0
+}
+
 
 #
 # check if a particular deb package is installed with dpkg-query
 # arg $1 -> package name
 # arg $2 -> variable name to output status to (e.g. HAS_PACKAGE=1)
 #
-function check_deb_package()
+function find_deb_package()
 {
 	local PKG_NAME=$1
 	local HAS_PKG=`dpkg-query -W --showformat='${Status}\n' $PKG_NAME|grep "install ok installed"`
@@ -57,7 +101,7 @@ function install_deb_package()
 	local PKG_NAME=$1
 	
 	# check to see if the package is already installed
-	check_deb_package $PKG_NAME $2
+	find_deb_package $PKG_NAME $2
 
 	# if not, install the package
 	if [ -z $2 ]; then
@@ -68,7 +112,7 @@ function install_deb_package()
 	fi
 	
 	# verify that the package was installed
-	check_deb_package $PKG_NAME $2
+	find_deb_package $PKG_NAME $2
 	
 	if [ -z $2 ]; then
 		echo "$LOG_ZOO Failed to install '$PKG_NAME' deb package."
@@ -350,7 +394,23 @@ ${mem_free_str}  ${disk_free_str}\n
 	install_deb_package "dialog" FOUND_DIALOG
 	echo "$LOG_ZOO FOUND_DIALOG=$FOUND_DIALOG"
 
+
+	#
+	# check for updates
+	#
+	check_updates
+	version_updated=$?
+
 } > >(tee -i $LOG_FILE) 2>&1		# clear the log on first subshell (tee without -a)
+
+
+# if an update occured, exit this instance of the script
+echo "$LOG_ZOO version updated:  $version_updated"
+
+if [ $version_updated != 0 ]; then
+	echo "$LOG_ZOO finished updating, restarting script"
+	exit 0
+fi
 
 
 # use customized RC config
@@ -369,7 +429,8 @@ while true; do
 						1 "Board Information" \
 						2 "View Installed Add-Ons" \
 						3 "Install Add-On Packages" \
-						4 "Uninstall Add-On Packages")
+						4 "Uninstall Add-On Packages" \
+						5 "Check for Updates" )
 
 	menu_status=$?
 	clear
@@ -401,8 +462,7 @@ while true; do
 		4)
 			echo "$LOG_ZOO Uninstall Add-On Packages" ;;
 		5)
-			echo "$LOG_ZOO Press Enter key to quit"
-			exit 0 ;;
+			echo "$LOG_ZOO Check for Updates" ;;
 		*)
 			echo "$LOG_ZOO Unknown Menu Option" ;;
 	esac
