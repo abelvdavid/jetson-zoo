@@ -35,7 +35,7 @@ UPDATES_URL="https://raw.githubusercontent.com/dusty-nv/jetson-zoo/master/jetson
 function check_updates()
 {
 	CHECKSUM=sha256sum
-$
+
 	NEW_PATH="jetson-zoo.new"
 	OLD_PATH="jetson-zoo.old"
 	CUR_PATH=$0
@@ -61,9 +61,6 @@ $
 	# compare checksums
 	if [ $CHECKSUM_OLD != $CHECKSUM_NEW ]; then
 		echo "$LOG_ZOO updated version found"
-		# TODO ask user if they want to update
-		#cp $NEW_PATH $CUR_PATH
-		#$CUR_PATH $@
 		return 1
 	fi
 
@@ -149,16 +146,19 @@ function install_jetson_inference()
 function install_packages()
 {
 	pkg_selected=$(dialog --backtitle "$APP_TITLE" \
-						  --title "Packages to Install" \
-						  --checklist "Keys:\n  ↑↓  Navigate Menu\n  Space to Select Packages \n  Enter to Continue" 20 80 7 \
+						  --title "Install Add-On Packages" \
+						  --checklist "Keys:\n  ↑↓  Navigate Menu\n  Space to Select Packages \n  Enter to Continue" 20 80 10 \
 						  --output-fd 1 \
 						  1 "Hello AI World (jetson-inference)" off \
 						  2 "TensorFlow 1.13" off \
 						  3 "PyTorch 1.0 (Python 2.7)" off \
 						  4 "PyTorch 1.0 (Python 3.6)" off \
-						  5 "MXNet" off \
-						  6 "AWS Greengrass" off \
-						  7 "ROS Melodic" off)
+						  5 "Caffe2" off \
+						  6 "MXNet" off \
+						  7 "ROS Melodic" off \
+						  8 "ros_deep_learning" off \
+						  9 "Gazebo" off \
+						  10 "AWS Greengrass" off )
 
 	pkg_selection_status=$?
 	clear
@@ -364,7 +364,7 @@ ${mem_free_str}  ${disk_free_str}\n
 	dialog --backtitle "$APP_TITLE" \
 		  --title "Jetson Board Information" \
 		  --colors \
-		  --msgbox "$info_str" 20 85 
+		  --msgbox "$info_str" 22 85 
 }
 
 
@@ -404,17 +404,31 @@ ${mem_free_str}  ${disk_free_str}\n
 } > >(tee -i $LOG_FILE) 2>&1		# clear the log on first subshell (tee without -a)
 
 
+# use customized RC config
+export DIALOGRC=./jetson-zoo.rc
+
+
 # if an update occured, exit this instance of the script
+echo "TEST TEST"
 echo "$LOG_ZOO version updated:  $version_updated"
 
 if [ $version_updated != 0 ]; then
-	echo "$LOG_ZOO finished updating, restarting script"
-	exit 0
+	dialog --backtitle "$APP_TITLE" --title "Update Notification" --yesno "\nAn updated version of this script is available.\n\nWould you like for it to be downloaded now?" 10 55
+
+	update_status=$?
+
+	if [ $update_status == 0 ]; then
+		echo "$LOG_ZOO applying update ($NEW_PATH -> $CUR_PATH)..."
+		#cp $NEW_PATH $CUR_PATH
+		#$CUR_PATH $@
+		exit 0
+	fi
+	#echo "$LOG_ZOO finished updating, restarting script"
 fi
 
 
-# use customized RC config
-export DIALOGRC=./jetson-zoo.rc
+
+
 
 
 #
@@ -426,10 +440,10 @@ while true; do
 					   --cancel-label "Quit" \
 					   --menu "Keys:\n  ↑↓  Navigate Menu\n  Enter to Continue" 20 80 7 \
 					   --output-fd 1 \
-						1 "Board Information" \
-						2 "View Installed Add-Ons" \
-						3 "Install Add-On Packages" \
-						4 "Uninstall Add-On Packages" \
+						1 "Install Add-On Packages" \
+						2 "Uninstall Add-On Packages" \
+						3 "View Installed Add-Ons" \
+						4 "View Board Information" \
 						5 "Check for Updates" )
 
 	menu_status=$?
@@ -452,15 +466,15 @@ while true; do
 	# execute the selected menu option
 	case $menu_selected in
 		1)
-			echo "$LOG_ZOO Board Information" 
-			jetson_info ;;
-		2)
-			echo "$LOG_ZOO View Installed Add-Ons" ;;
-		3)
 			echo "$LOG_ZOO Install Add-On Packages" 
 			install_packages ;;
-		4)
+		2)
 			echo "$LOG_ZOO Uninstall Add-On Packages" ;;
+		3)
+			echo "$LOG_ZOO View Installed Add-Ons" ;;
+		4)
+			echo "$LOG_ZOO View Board Information" 
+			jetson_info ;;
 		5)
 			echo "$LOG_ZOO Check for Updates" ;;
 		*)
